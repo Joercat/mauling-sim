@@ -1,153 +1,215 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mauling Simulator</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <title>Enhanced Mauling Simulator</title>
     <style>
         body {
             margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: #f0f0f0;
+            background: #1a1a1a;
             font-family: Arial, sans-serif;
+            color: #ffffff;
         }
         
         canvas {
-            border: 3px solid #333;
+            border: 3px solid #333333;
             border-radius: 10px;
-            background: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            background: #ffffff;
         }
         
-        #gameOver {
-            display: none;
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+        }
+        
+        #leaderboard {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 200px;
+        }
+        
+        .powerUp {
             position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        
+        #maulMinigame {
+            display: none;
+            position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 32px;
-            color: #ff3333;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-            background: rgba(255,255,255,0.9);
-            padding: 20px 40px;
+            background: #333333;
+            padding: 20px;
             border-radius: 10px;
-            cursor: pointer;
-        }
-        
-        #score {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            font-size: 24px;
-            color: #333;
-        }
-        
-        #instructions {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: #666;
             text-align: center;
+        }
+        
+        #progressBar {
+            width: 300px;
+            height: 20px;
+            background: #666666;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        #progress {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        input, select, button {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: none;
+            background: #333333;
+            color: #ffffff;
+            margin: 5px;
+        }
+        
+        button {
+            background: #4CAF50;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #45a049;
         }
     </style>
 </head>
 <body>
-    <div id="score">Score: 0</div>
+    <div id="leaderboard"></div>
     <canvas id="gameCanvas"></canvas>
-    <div id="gameOver">Game Over! Click to respawn</div>
-    <div id="instructions">Use arrow keys to move | Maul smaller dogs to grow</div>
+    
+    <div id="startScreen">
+        <h1>Mauling Simulator</h1>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="15">
+        <select id="dogBreed">
+            <option value="bulldog">Bulldog</option>
+            <option value="poodle">Poodle</option>
+            <option value="husky">Husky</option>
+            <option value="corgi">Corgi</option>
+        </select>
+        <button onclick="startGame()">Start Game</button>
+    </div>
+    
+    <div id="maulMinigame">
+        <h2>MAUL BATTLE!</h2>
+        <div id="countdown">3</div>
+        <div id="progressBar"><div id="progress"></div></div>
+        <div id="instructions">Spam SPACE to win!</div>
+    </div>
 
+    <script src="/socket.io/socket.io.js"></script>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const gameOverDiv = document.getElementById('gameOver');
-        const scoreDiv = document.getElementById('score');
-
         canvas.width = 800;
         canvas.height = 600;
-
+        
         const socket = io();
-
-        let player = {
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            size: 20,
-            score: 0,
-            color: `hsl(${Math.random() * 360}, 70%, 50%)`
-        };
-
+        let player = null;
         let players = [];
-        let gameOver = false;
-
+        let powerUps = [];
+        
+        const maze = [
+            {x: 100, y: 100, width: 200, height: 20},
+            {x: 300, y: 200, width: 20, height: 200},
+            {x: 500, y: 300, width: 200, height: 20},
+            {x: 150, y: 400, width: 20, height: 150}
+        ];
+        
+        function startGame() {
+            const name = document.getElementById('playerName').value;
+            const breed = document.getElementById('dogBreed').value;
+            if (name.trim()) {
+                document.getElementById('startScreen').style.display = 'none';
+                socket.emit('playerJoin', { name, breed });
+            }
+        }
+        
         function drawDog(x, y, size, color) {
-            // Body
-            ctx.fillStyle = color;
+            ctx.fillStyle = Array.isArray(color) ? color[Math.floor(Date.now() / 100) % color.length] : color;
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
             
-            // Ears
-            ctx.fillStyle = `hsl(${color.match(/\d+/)[0]}, 70%, 40%)`;
+            // Draw ears
+            ctx.fillStyle = '#4A3728';
             ctx.beginPath();
             ctx.arc(x - size/2, y - size/2, size/3, 0, Math.PI * 2);
             ctx.arc(x + size/2, y - size/2, size/3, 0, Math.PI * 2);
             ctx.fill();
-            
-            // Eyes
-            ctx.fillStyle = 'white';
-            ctx.beginPath();
-            ctx.arc(x - size/3, y - size/6, size/6, 0, Math.PI * 2);
-            ctx.arc(x + size/3, y - size/6, size/6, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Pupils
-            ctx.fillStyle = 'black';
-            ctx.beginPath();
-            ctx.arc(x - size/3, y - size/6, size/12, 0, Math.PI * 2);
-            ctx.arc(x + size/3, y - size/6, size/12, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Nose
-            ctx.fillStyle = 'black';
-            ctx.beginPath();
-            ctx.arc(x, y + size/4, size/6, 0, Math.PI * 2);
-            ctx.fill();
         }
-
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw grid
-            ctx.strokeStyle = '#eee';
-            for(let i = 0; i < canvas.width; i += 50) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0);
-                ctx.lineTo(i, canvas.height);
-                ctx.stroke();
-            }
-            for(let i = 0; i < canvas.height; i += 50) {
-                ctx.beginPath();
-                ctx.moveTo(0, i);
-                ctx.lineTo(canvas.width, i);
-                ctx.stroke();
-            }
-            
-            players.forEach(p => {
-                drawDog(p.x, p.y, p.size, p.color || '#8B4513');
-                
-                ctx.fillStyle = 'black';
-                ctx.font = '16px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 20);
+        
+        function drawMaze() {
+            ctx.fillStyle = '#666666';
+            maze.forEach(wall => {
+                ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
             });
         }
-
+        
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
+                               powerUp.type === 'double' ? '#FFD700' : '#4B0082';
+                ctx.beginPath();
+                ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawMaze();
+            drawPowerUps();
+            
+            players.forEach(p => {
+                drawDog(p.x, p.y, p.size, p.color);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.name, p.x, p.y + p.size + 20);
+                ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 35);
+            });
+        }
+        
+        function updateLeaderboard() {
+            const board = document.getElementById('leaderboard');
+            const sorted = [...players].sort((a, b) => b.score - a.score);
+            board.innerHTML = '<h3>Top Players</h3>' + 
+                sorted.slice(0, 5).map(p => 
+                    `<div>${p.name}: ${p.score}</div>`
+                ).join('');
+        }
+        
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+        
         function update() {
-            if (!gameOver) {
-                const speed = 5;
+            if (player) {
+                const speed = player.powerUps.speed ? 8 : 5;
                 if (keys.ArrowLeft) player.x -= speed;
                 if (keys.ArrowRight) player.x += speed;
                 if (keys.ArrowUp) player.y -= speed;
@@ -157,57 +219,66 @@
                 player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
                 
                 socket.emit('update', player);
-                scoreDiv.textContent = `Score: ${player.score}`;
             }
         }
-
-        const keys = {};
-        window.addEventListener('keydown', e => keys[e.key] = true);
-        window.addEventListener('keyup', e => keys[e.key] = false);
-
+        
         socket.on('gameState', (state) => {
             players = state;
-            const currentPlayer = players.find(p => p.id === socket.id);
-            if (currentPlayer) {
-                player.size = currentPlayer.size;
-                player.score = currentPlayer.score;
+            player = players.find(p => p.id === socket.id);
+            updateLeaderboard();
+        });
+        
+        socket.on('powerUpSpawn', (state) => {
+            powerUps = state;
+        });
+        
+        socket.on('startMaulMinigame', startMaulMinigame);
+        
+        function startMaulMinigame(data) {
+            const minigame = document.getElementById('maulMinigame');
+            minigame.style.display = 'block';
+            
+            let countdown = 3;
+            const countdownElem = document.getElementById('countdown');
+            
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                countdownElem.textContent = countdown;
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    startSpacebarBattle(data);
+                }
+            }, 1000);
+        }
+        
+        function startSpacebarBattle(data) {
+            let clicks = 0;
+            const progress = document.getElementById('progress');
+            
+            function handleSpace(e) {
+                if (e.code === 'Space') {
+                    clicks++;
+                    const percentage = (clicks / data.requiredClicks) * 100;
+                    progress.style.width = `${percentage}%`;
+                    
+                    if (clicks >= data.requiredClicks) {
+                        window.removeEventListener('keydown', handleSpace);
+                        socket.emit('maulComplete', { targetId: data.targetId });
+                        document.getElementById('maulMinigame').style.display = 'none';
+                        progress.style.width = '0%';
+                    }
+                }
             }
-        });
-
-        socket.on('mauled', () => {
-            gameOver = true;
-            gameOverDiv.style.display = 'block';
-        });
-
-        canvas.addEventListener('click', () => {
-            if (gameOver) {
-                gameOver = false;
-                gameOverDiv.style.display = 'none';
-                player = {
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    size: 20,
-                    score: 0,
-                    color: `hsl(${Math.random() * 360}, 70%, 50%)`
-                };
-            }
-        });
-
+            
+            window.addEventListener('keydown', handleSpace);
+        }
+        
         function gameLoop() {
             update();
             draw();
             requestAnimationFrame(gameLoop);
         }
-
-        // Add visual feedback on hover
-        gameOverDiv.addEventListener('mouseover', () => {
-            gameOverDiv.style.transform = 'translate(-50%, -50%) scale(1.1)';
-        });
         
-        gameOverDiv.addEventListener('mouseout', () => {
-            gameOverDiv.style.transform = 'translate(-50%, -50%) scale(1)';
-        });
-
         gameLoop();
     </script>
 </body>
