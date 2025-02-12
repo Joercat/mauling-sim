@@ -5,9 +5,36 @@
     <style>
         body {
             margin: 0;
+            padding: 20px;
             background: #1a1a1a;
             font-family: Arial, sans-serif;
             color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        #leaderboard {
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 300px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .leaderboard-entry {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 10px;
+            border-bottom: 1px solid #333;
         }
         
         canvas {
@@ -28,24 +55,26 @@
             align-items: center;
             justify-content: center;
             gap: 20px;
+            z-index: 100;
         }
         
-        #leaderboard {
-            position: fixed;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            padding: 15px;
-            border-radius: 8px;
-            min-width: 200px;
-        }
-        
-        .powerUp {
+        #powerUpsDisplay {
             position: absolute;
-            width: 20px;
-            height: 20px;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .powerUp-icon {
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
+            border: 2px solid #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
         }
         
         #maulMinigame {
@@ -58,6 +87,7 @@
             padding: 20px;
             border-radius: 10px;
             text-align: center;
+            z-index: 50;
         }
         
         #progressBar {
@@ -98,8 +128,10 @@
     </style>
 </head>
 <body>
-    <div id="leaderboard"></div>
-    <canvas id="gameCanvas"></canvas>
+    <div id="gameContainer">
+        <div id="leaderboard"></div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
     
     <div id="startScreen">
         <h1>Mauling Simulator</h1>
@@ -132,34 +164,93 @@
         let players = [];
         let powerUps = [];
         
+        // Define maze walls
         const maze = [
-            {x: 100, y: 100, width: 200, height: 20},
-            {x: 300, y: 200, width: 20, height: 200},
-            {x: 500, y: 300, width: 200, height: 20},
-            {x: 150, y: 400, width: 20, height: 150}
+            {x: 100, y: 100, width: 20, height: 200},
+            {x: 300, y: 200, width: 200, height: 20},
+            {x: 500, y: 300, width: 20, height: 200},
+            {x: 150, y: 400, width: 200, height: 20}
         ];
-        
-        function startGame() {
-            const name = document.getElementById('playerName').value;
-            const breed = document.getElementById('dogBreed').value;
-            if (name.trim()) {
-                document.getElementById('startScreen').style.display = 'none';
-                socket.emit('playerJoin', { name, breed });
+
+        function drawDetailedDog(x, y, size, color, breed) {
+            // Body
+            ctx.save();
+            if (Array.isArray(color.colors)) {
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
+                color.colors.forEach((c, i) => {
+                    gradient.addColorStop(i / color.colors.length, c);
+                });
+                ctx.fillStyle = gradient;
+            } else {
+                ctx.fillStyle = color.color;
             }
-        }
-        
-        function drawDog(x, y, size, color) {
-            ctx.fillStyle = Array.isArray(color) ? color[Math.floor(Date.now() / 100) % color.length] : color;
+            
             ctx.beginPath();
             ctx.arc(x, y, size, 0, Math.PI * 2);
             ctx.fill();
             
-            // Draw ears
+            // Breed-specific features
+            switch(breed) {
+                case 'bulldog':
+                    // Wrinkles
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y - size/4, size/2, 0.2, Math.PI - 0.2);
+                    ctx.stroke();
+                    break;
+                case 'poodle':
+                    // Fluffy texture
+                    for(let i = 0; i < 8; i++) {
+                        ctx.beginPath();
+                        ctx.arc(x + Math.cos(i * Math.PI/4) * size/2,
+                               y + Math.sin(i * Math.PI/4) * size/2,
+                               size/4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    break;
+                case 'husky':
+                    // Mask pattern
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(x, y + size/4, size/2, 0, Math.PI);
+                    ctx.fill();
+                    break;
+                case 'corgi':
+                    // Short legs
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(x - size/2, y + size/2, size, size/4);
+                    break;
+            }
+            
+            // Eyes
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x - size/3, y - size/6, size/4, 0, Math.PI * 2);
+            ctx.arc(x + size/3, y - size/6, size/4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Pupils
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(x - size/3, y - size/6, size/8, 0, Math.PI * 2);
+            ctx.arc(x + size/3, y - size/6, size/8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Nose
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(x, y + size/4, size/6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ears
             ctx.fillStyle = '#4A3728';
             ctx.beginPath();
             ctx.arc(x - size/2, y - size/2, size/3, 0, Math.PI * 2);
             ctx.arc(x + size/2, y - size/2, size/3, 0, Math.PI * 2);
             ctx.fill();
+            
+            ctx.restore();
         }
         
         function drawMaze() {
@@ -176,6 +267,21 @@
                 ctx.beginPath();
                 ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
                 ctx.fill();
+                
+                // Power-up icon
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
+            });
+        }
+        
+        function checkWallCollision(x, y) {
+            return maze.some(wall => {
+                return x + FIXED_SIZE > wall.x &&
+                       x - FIXED_SIZE < wall.x + wall.width &&
+                       y + FIXED_SIZE > wall.y &&
+                       y - FIXED_SIZE < wall.y + wall.height;
             });
         }
         
@@ -185,7 +291,7 @@
             drawPowerUps();
             
             players.forEach(p => {
-                drawDog(p.x, p.y, p.size, p.color);
+                drawDetailedDog(p.x, p.y, p.size, p.color, p.breed);
                 ctx.fillStyle = '#ffffff';
                 ctx.font = '14px Arial';
                 ctx.textAlign = 'center';
@@ -198,27 +304,47 @@
             const board = document.getElementById('leaderboard');
             const sorted = [...players].sort((a, b) => b.score - a.score);
             board.innerHTML = '<h3>Top Players</h3>' + 
-                sorted.slice(0, 5).map(p => 
-                    `<div>${p.name}: ${p.score}</div>`
+                sorted.slice(0, 5).map((p, i) => 
+                    `<div class="leaderboard-entry">
+                        <span>#${i + 1} ${p.name}</span>
+                        <span>${p.score}</span>
+                    </div>`
                 ).join('');
         }
         
         const keys = {};
-        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keydown', e => {
+            keys[e.key] = true;
+            if (e.key === ' ') e.preventDefault();
+        });
         window.addEventListener('keyup', e => keys[e.key] = false);
         
         function update() {
             if (player) {
                 const speed = player.powerUps.speed ? 8 : 5;
-                if (keys.ArrowLeft) player.x -= speed;
-                if (keys.ArrowRight) player.x += speed;
-                if (keys.ArrowUp) player.y -= speed;
-                if (keys.ArrowDown) player.y += speed;
+                let newX = player.x;
+                let newY = player.y;
                 
-                player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-                player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+                if (keys.ArrowLeft) newX -= speed;
+                if (keys.ArrowRight) newX += speed;
+                if (keys.ArrowUp) newY -= speed;
+                if (keys.ArrowDown) newY += speed;
                 
-                socket.emit('update', player);
+                // Check wall collision before updating position
+                if (!checkWallCollision(newX, newY)) {
+                    player.x = Math.max(player.size, Math.min(canvas.width - player.size, newX));
+                    player.y = Math.max(player.size, Math.min(canvas.height - player.size, newY));
+                    socket.emit('update', player);
+                }
+            }
+        }
+        
+        function startGame() {
+            const name = document.getElementById('playerName').value;
+            const breed = document.getElementById('dogBreed').value;
+            if (name.trim()) {
+                document.getElementById('startScreen').style.display = 'none';
+                socket.emit('playerJoin', { name, breed });
             }
         }
         
@@ -230,6 +356,23 @@
         
         socket.on('powerUpSpawn', (state) => {
             powerUps = state;
+        });
+        
+        socket.on('powerUpCollected', (data) => {
+            if (data.playerId === socket.id) {
+                // Visual feedback for power-up collection
+                const flash = document.createElement('div');
+                flash.style.position = 'fixed';
+                flash.style.top = '50%';
+                flash.style.left = '50%';
+                flash.style.transform = 'translate(-50%, -50%)';
+                flash.style.padding = '20px';
+                flash.style.background = 'rgba(255,255,255,0.8)';
+                flash.style.borderRadius = '10px';
+                flash.textContent = `${data.type.toUpperCase()} POWER-UP!`;
+                document.body.appendChild(flash);
+                setTimeout(() => flash.remove(), 1000);
+            }
         });
         
         socket.on('startMaulMinigame', startMaulMinigame);
@@ -272,6 +415,21 @@
             
             window.addEventListener('keydown', handleSpace);
         }
+        
+        socket.on('mauled', (data) => {
+            const flash = document.createElement('div');
+            flash.style.position = 'fixed';
+            flash.style.top = '50%';
+            flash.style.left = '50%';
+            flash.style.transform = 'translate(-50%, -50%)';
+            flash.style.padding = '20px';
+            flash.style.background = 'rgba(255,0,0,0.8)';
+            flash.style.borderRadius = '10px';
+            flash.style.color = 'white';
+            flash.textContent = 'YOU GOT MAULED!';
+            document.body.appendChild(flash);
+            setTimeout(() => flash.remove(), 1000);
+        });
         
         function gameLoop() {
             update();
