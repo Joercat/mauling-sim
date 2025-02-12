@@ -10,46 +10,67 @@ app.use(express.static('public'));
 
 const FIXED_SIZE = 30;
 const MAX_LEVEL = 100;
+const POWER_UP_DURATION = 5000;
 const players = new Map();
 const powerUps = new Set();
+const GAME_WIDTH = 800;
+const GAME_HEIGHT = 600;
+
+// Power-up types and their colors
+const POWER_UP_TYPES = {
+    speed: { color: '#00FF00', multiplier: 1.5 },
+    double: { color: '#FFD700', multiplier: 2 },
+    invisible: { color: '#4B0082', alpha: 0.5 }
+};
 
 function getColorByScore(score) {
-    if (score >= 100) return ['#FF0000', '#FFA500', '#FFFF00', '#008000', '#0000FF', '#4B0082', '#9400D3'];
-    if (score >= 90) return '#FFD700';
-    if (score >= 80) return '#C0C0C0';
-    if (score >= 70) return '#9400D3';
-    if (score >= 60) return '#4B0082';
-    if (score >= 50) return '#0000FF';
-    if (score >= 40) return '#008000';
-    if (score >= 30) return '#FFFF00';
-    if (score >= 20) return '#FFA500';
-    return '#FF0000';
+    if (score >= 100) return {
+        type: 'rainbow',
+        colors: ['#FF0000', '#FFA500', '#FFFF00', '#008000', '#0000FF', '#4B0082', '#9400D3']
+    };
+    if (score >= 90) return { type: 'solid', color: '#FFD700' };
+    if (score >= 80) return { type: 'solid', color: '#C0C0C0' };
+    if (score >= 70) return { type: 'solid', color: '#9400D3' };
+    if (score >= 60) return { type: 'solid', color: '#4B0082' };
+    if (score >= 50) return { type: 'solid', color: '#0000FF' };
+    if (score >= 40) return { type: 'solid', color: '#008000' };
+    if (score >= 30) return { type: 'solid', color: '#FFFF00' };
+    if (score >= 20) return { type: 'solid', color: '#FFA500' };
+    return { type: 'solid', color: '#FF0000' };
 }
 
+// Spawn power-ups every 10 seconds
 setInterval(() => {
     if (powerUps.size < 5) {
-        powerUps.add({
+        const powerUp = {
             id: Date.now(),
-            x: Math.random() * 800,
-            y: Math.random() * 600,
-            type: ['speed', 'double', 'invisible'][Math.floor(Math.random() * 3)]
-        });
+            x: Math.random() * (GAME_WIDTH - 40) + 20,
+            y: Math.random() * (GAME_HEIGHT - 40) + 20,
+            type: Object.keys(POWER_UP_TYPES)[Math.floor(Math.random() * 3)]
+        };
+        powerUps.add(powerUp);
         io.emit('powerUpSpawn', Array.from(powerUps));
     }
 }, 10000);
 
 io.on('connection', (socket) => {
+    console.log('Player connected:', socket.id);
+
     socket.on('playerJoin', (data) => {
+        const spawnX = Math.random() * (GAME_WIDTH - 100) + 50;
+        const spawnY = Math.random() * (GAME_HEIGHT - 100) + 50;
+
         players.set(socket.id, {
             id: socket.id,
             name: data.name,
             breed: data.breed,
-            x: Math.random() * 800,
-            y: Math.random() * 600,
+            x: spawnX,
+            y: spawnY,
             size: FIXED_SIZE,
             score: 0,
-            color: '#FF0000',
-            powerUps: {}
+            color: getColorByScore(0),
+            powerUps: {},
+            lastUpdate: Date.now()
         });
         io.emit('gameState', Array.from(players.values()));
     });
@@ -57,9 +78,39 @@ io.on('connection', (socket) => {
     socket.on('update', (data) => {
         const player = players.get(socket.id);
         if (player) {
+            const now = Date.now();
+            const deltaTime = now - player.lastUpdate;
+            
+            // Smooth movement with delta time
             player.x = data.x;
             player.y = data.y;
+            player.lastUpdate = now;
+
+            // Check power-up collection
+            powerUps.forEach(powerUp => {
+                const dx = player.x - powerUp.x;
+                const dy = player.y - powerUp.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < player.size + 10) {
+                    player.powerUps[powerUp.type] = true;
+                    powerUps.delete(powerUp);
+                    
+                    setTimeout(() => {
+                        player.powerUps[powerUp.type] = false;
+                        io.to(socket.id).emit('powerUpExpired', powerUp.type);
+                    }, POWER_UP_DURATION);
+
+                    io.emit('powerUpCollected', {
+                        playerId: socket.id,
+                        powerUpId: powerUp.id,
+                        type: powerUp.type
+                    });
+                }
+            });
+
             io.emit('gameState', Array.from(players.values()));
+            io.emit('powerUpSpawn', Array.from(powerUps));
         }
     });
 
@@ -88,16 +139,18 @@ io.on('connection', (socket) => {
             if (attacker.score === target.score) points = 2;
             if (attacker.score < target.score) points = 3;
             
+            if (attacker.powerUps.double) points *= 2;
+            
             attacker.score = Math.min(MAX_LEVEL, attacker.score + points);
             attacker.color = getColorByScore(attacker.score);
             
-            if (attacker.powerUps.double) points *= 2;
-            
             io.emit('gameState', Array.from(players.values()));
+            io.to(data.targetId).emit('mauled', { attackerId: socket.id });
         }
     });
 
     socket.on('disconnect', () => {
+        console.log('Player disconnected:', socket.id);
         players.delete(socket.id);
         io.emit('gameState', Array.from(players.values()));
     });
