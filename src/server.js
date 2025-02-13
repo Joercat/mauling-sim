@@ -11,17 +11,17 @@ app.use(express.static('public'));
 const FIXED_SIZE = 30;
 const MAX_LEVEL = 100;
 const POWER_UP_DURATION = 5000;
-const players = new Map();
-const powerUps = new Set();
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
-// Power-up types and their colors
-const POWER_UP_TYPES = {
-    speed: { color: '#00FF00', multiplier: 1.5 },
-    double: { color: '#FFD700', multiplier: 2 },
-    invisible: { color: '#4B0082', alpha: 0.5 }
-};
+const players = new Map();
+const powerUps = new Set();
+const maze = [
+    {x: 100, y: 100, width: 20, height: 200},
+    {x: 300, y: 200, width: 200, height: 20},
+    {x: 500, y: 300, width: 20, height: 200},
+    {x: 150, y: 400, width: 200, height: 20}
+];
 
 function getColorByScore(score) {
     if (score >= 100) return {
@@ -39,14 +39,44 @@ function getColorByScore(score) {
     return { type: 'solid', color: '#FF0000' };
 }
 
-// Spawn power-ups every 10 seconds
+function checkWallCollision(x, y, size) {
+    return maze.some(wall => {
+        const circleDistance = {
+            x: Math.abs(x - (wall.x + wall.width/2)),
+            y: Math.abs(y - (wall.y + wall.height/2))
+        };
+
+        if (circleDistance.x > (wall.width/2 + size)) return false;
+        if (circleDistance.y > (wall.height/2 + size)) return false;
+
+        if (circleDistance.x <= (wall.width/2)) return true;
+        if (circleDistance.y <= (wall.height/2)) return true;
+
+        const cornerDistance = Math.pow(circleDistance.x - wall.width/2, 2) +
+                             Math.pow(circleDistance.y - wall.height/2, 2);
+
+        return cornerDistance <= Math.pow(size, 2);
+    });
+}
+
+function spawnPowerUp() {
+    let x, y;
+    do {
+        x = Math.random() * (GAME_WIDTH - 40) + 20;
+        y = Math.random() * (GAME_HEIGHT - 40) + 20;
+    } while (checkWallCollision(x, y, 10));
+    
+    return { x, y };
+}
+
 setInterval(() => {
     if (powerUps.size < 5) {
+        const pos = spawnPowerUp();
         const powerUp = {
             id: Date.now(),
-            x: Math.random() * (GAME_WIDTH - 40) + 20,
-            y: Math.random() * (GAME_HEIGHT - 40) + 20,
-            type: Object.keys(POWER_UP_TYPES)[Math.floor(Math.random() * 3)]
+            x: pos.x,
+            y: pos.y,
+            type: ['speed', 'double', 'invisible'][Math.floor(Math.random() * 3)]
         };
         powerUps.add(powerUp);
         io.emit('powerUpSpawn', Array.from(powerUps));
@@ -57,8 +87,11 @@ io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
     socket.on('playerJoin', (data) => {
-        const spawnX = Math.random() * (GAME_WIDTH - 100) + 50;
-        const spawnY = Math.random() * (GAME_HEIGHT - 100) + 50;
+        let spawnX, spawnY;
+        do {
+            spawnX = Math.random() * (GAME_WIDTH - 100) + 50;
+            spawnY = Math.random() * (GAME_HEIGHT - 100) + 50;
+        } while (checkWallCollision(spawnX, spawnY, FIXED_SIZE));
 
         players.set(socket.id, {
             id: socket.id,
@@ -77,16 +110,10 @@ io.on('connection', (socket) => {
 
     socket.on('update', (data) => {
         const player = players.get(socket.id);
-        if (player) {
-            const now = Date.now();
-            const deltaTime = now - player.lastUpdate;
-            
-            // Smooth movement with delta time
+        if (player && !checkWallCollision(data.x, data.y, FIXED_SIZE)) {
             player.x = data.x;
             player.y = data.y;
-            player.lastUpdate = now;
 
-            // Check power-up collection
             powerUps.forEach(powerUp => {
                 const dx = player.x - powerUp.x;
                 const dy = player.y - powerUp.y;
@@ -97,8 +124,10 @@ io.on('connection', (socket) => {
                     powerUps.delete(powerUp);
                     
                     setTimeout(() => {
-                        player.powerUps[powerUp.type] = false;
-                        io.to(socket.id).emit('powerUpExpired', powerUp.type);
+                        if (player.powerUps[powerUp.type]) {
+                            player.powerUps[powerUp.type] = false;
+                            io.to(socket.id).emit('powerUpExpired', powerUp.type);
+                        }
                     }, POWER_UP_DURATION);
 
                     io.emit('powerUpCollected', {
