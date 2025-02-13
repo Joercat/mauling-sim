@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mauling Simulator</title>
+    <title>Enhanced Mauling Simulator</title>
     <style>
         body {
             margin: 0;
@@ -12,9 +12,11 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            overflow: hidden;
         }
         
         #gameContainer {
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -22,7 +24,7 @@
         }
         
         #leaderboard {
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.8);
             padding: 15px;
             border-radius: 8px;
             min-width: 300px;
@@ -131,6 +133,7 @@
     <div id="gameContainer">
         <div id="leaderboard"></div>
         <canvas id="gameCanvas"></canvas>
+        <div id="powerUpsDisplay"></div>
     </div>
     
     <div id="startScreen">
@@ -164,7 +167,6 @@
         let players = [];
         let powerUps = [];
         
-        // Define maze walls
         const maze = [
             {x: 100, y: 100, width: 20, height: 200},
             {x: 300, y: 200, width: 200, height: 20},
@@ -173,8 +175,9 @@
         ];
 
         function drawDetailedDog(x, y, size, color, breed) {
-            // Body
             ctx.save();
+            
+            // Body
             if (Array.isArray(color.colors)) {
                 const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
                 color.colors.forEach((c, i) => {
@@ -192,7 +195,6 @@
             // Breed-specific features
             switch(breed) {
                 case 'bulldog':
-                    // Wrinkles
                     ctx.strokeStyle = '#000000';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
@@ -200,7 +202,6 @@
                     ctx.stroke();
                     break;
                 case 'poodle':
-                    // Fluffy texture
                     for(let i = 0; i < 8; i++) {
                         ctx.beginPath();
                         ctx.arc(x + Math.cos(i * Math.PI/4) * size/2,
@@ -210,14 +211,12 @@
                     }
                     break;
                 case 'husky':
-                    // Mask pattern
                     ctx.fillStyle = '#ffffff';
                     ctx.beginPath();
                     ctx.arc(x, y + size/4, size/2, 0, Math.PI);
                     ctx.fill();
                     break;
                 case 'corgi':
-                    // Short legs
                     ctx.fillStyle = '#ffffff';
                     ctx.fillRect(x - size/2, y + size/2, size, size/4);
                     break;
@@ -243,13 +242,6 @@
             ctx.arc(x, y + size/4, size/6, 0, Math.PI * 2);
             ctx.fill();
             
-            // Ears
-            ctx.fillStyle = '#4A3728';
-            ctx.beginPath();
-            ctx.arc(x - size/2, y - size/2, size/3, 0, Math.PI * 2);
-            ctx.arc(x + size/2, y - size/2, size/3, 0, Math.PI * 2);
-            ctx.fill();
-            
             ctx.restore();
         }
         
@@ -262,26 +254,38 @@
         
         function drawPowerUps() {
             powerUps.forEach(powerUp => {
-                ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
-                               powerUp.type === 'double' ? '#FFD700' : '#4B0082';
-                ctx.beginPath();
-                ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // Power-up icon
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
+                if (!checkWallCollision(powerUp.x, powerUp.y, 10)) {
+                    ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
+                                   powerUp.type === 'double' ? '#FFD700' : '#4B0082';
+                    ctx.beginPath();
+                    ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
+                }
             });
         }
         
-        function checkWallCollision(x, y) {
+        function checkWallCollision(x, y, size) {
             return maze.some(wall => {
-                return x + FIXED_SIZE > wall.x &&
-                       x - FIXED_SIZE < wall.x + wall.width &&
-                       y + FIXED_SIZE > wall.y &&
-                       y - FIXED_SIZE < wall.y + wall.height;
+                const circleDistance = {
+                    x: Math.abs(x - (wall.x + wall.width/2)),
+                    y: Math.abs(y - (wall.y + wall.height/2))
+                };
+
+                if (circleDistance.x > (wall.width/2 + size)) return false;
+                if (circleDistance.y > (wall.height/2 + size)) return false;
+
+                if (circleDistance.x <= (wall.width/2)) return true;
+                if (circleDistance.y <= (wall.height/2)) return true;
+
+                const cornerDistance = Math.pow(circleDistance.x - wall.width/2, 2) +
+                                     Math.pow(circleDistance.y - wall.height/2, 2);
+
+                return cornerDistance <= Math.pow(size, 2);
             });
         }
         
@@ -290,7 +294,8 @@
             drawMaze();
             drawPowerUps();
             
-            players.forEach(p => {
+            // Draw other players first
+            players.filter(p => p.id !== socket.id).forEach(p => {
                 drawDetailedDog(p.x, p.y, p.size, p.color, p.breed);
                 ctx.fillStyle = '#ffffff';
                 ctx.font = '14px Arial';
@@ -298,6 +303,16 @@
                 ctx.fillText(p.name, p.x, p.y + p.size + 20);
                 ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 35);
             });
+            
+            // Draw local player last
+            if (player) {
+                drawDetailedDog(player.x, player.y, player.size, player.color, player.breed);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(player.name, player.x, player.y + player.size + 20);
+                ctx.fillText(`Score: ${player.score}`, player.x, player.y + player.size + 35);
+            }
         }
         
         function updateLeaderboard() {
@@ -330,8 +345,7 @@
                 if (keys.ArrowUp) newY -= speed;
                 if (keys.ArrowDown) newY += speed;
                 
-                // Check wall collision before updating position
-                if (!checkWallCollision(newX, newY)) {
+                if (!checkWallCollision(newX, newY, player.size)) {
                     player.x = Math.max(player.size, Math.min(canvas.width - player.size, newX));
                     player.y = Math.max(player.size, Math.min(canvas.height - player.size, newY));
                     socket.emit('update', player);
@@ -339,18 +353,9 @@
             }
         }
         
-        function startGame() {
-            const name = document.getElementById('playerName').value;
-            const breed = document.getElementById('dogBreed').value;
-            if (name.trim()) {
-                document.getElementById('startScreen').style.display = 'none';
-                socket.emit('playerJoin', { name, breed });
-            }
-        }
-        
         socket.on('gameState', (state) => {
             players = state;
-            player = players.find(p => p.id === socket.id);
+            player = state.find(p => p.id === socket.id);
             updateLeaderboard();
         });
         
@@ -360,7 +365,6 @@
         
         socket.on('powerUpCollected', (data) => {
             if (data.playerId === socket.id) {
-                // Visual feedback for power-up collection
                 const flash = document.createElement('div');
                 flash.style.position = 'fixed';
                 flash.style.top = '50%';
@@ -375,61 +379,22 @@
             }
         });
         
+        socket.on('powerUpExpired', (type) => {
+            if (player) {
+                player.powerUps[type] = false;
+            }
+        });
+        
         socket.on('startMaulMinigame', startMaulMinigame);
         
-        function startMaulMinigame(data) {
-            const minigame = document.getElementById('maulMinigame');
-            minigame.style.display = 'block';
-            
-            let countdown = 3;
-            const countdownElem = document.getElementById('countdown');
-            
-            const countdownInterval = setInterval(() => {
-                countdown--;
-                countdownElem.textContent = countdown;
-                if (countdown <= 0) {
-                    clearInterval(countdownInterval);
-                    startSpacebarBattle(data);
-                }
-            }, 1000);
-        }
-        
-        function startSpacebarBattle(data) {
-            let clicks = 0;
-            const progress = document.getElementById('progress');
-            
-            function handleSpace(e) {
-                if (e.code === 'Space') {
-                    clicks++;
-                    const percentage = (clicks / data.requiredClicks) * 100;
-                    progress.style.width = `${percentage}%`;
-                    
-                    if (clicks >= data.requiredClicks) {
-                        window.removeEventListener('keydown', handleSpace);
-                        socket.emit('maulComplete', { targetId: data.targetId });
-                        document.getElementById('maulMinigame').style.display = 'none';
-                        progress.style.width = '0%';
-                    }
-                }
+        function startGame() {
+            const name = document.getElementById('playerName').value;
+            const breed = document.getElementById('dogBreed').value;
+            if (name.trim()) {
+                document.getElementById('startScreen').style.display = 'none';
+                socket.emit('playerJoin', { name, breed });
             }
-            
-            window.addEventListener('keydown', handleSpace);
         }
-        
-        socket.on('mauled', (data) => {
-            const flash = document.createElement('div');
-            flash.style.position = 'fixed';
-            flash.style.top = '50%';
-            flash.style.left = '50%';
-            flash.style.transform = 'translate(-50%, -50%)';
-            flash.style.padding = '20px';
-            flash.style.background = 'rgba(255,0,0,0.8)';
-            flash.style.borderRadius = '10px';
-            flash.style.color = 'white';
-            flash.textContent = 'YOU GOT MAULED!';
-            document.body.appendChild(flash);
-            setTimeout(() => flash.remove(), 1000);
-        });
         
         function gameLoop() {
             update();
