@@ -8,12 +8,14 @@ const io = require('socket.io')(http, {
 const PORT = process.env.PORT || 3000;
 app.use(express.static('public'));
 
+// Game constants
 const FIXED_SIZE = 30;
 const MAX_LEVEL = 100;
 const POWER_UP_DURATION = 5000;
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
+// Game state
 const players = new Map();
 const powerUps = new Set();
 const maze = [
@@ -22,6 +24,13 @@ const maze = [
     {x: 500, y: 300, width: 20, height: 200},
     {x: 150, y: 400, width: 200, height: 20}
 ];
+
+// Power-up configuration
+const POWER_UP_TYPES = {
+    speed: { color: '#00FF00', multiplier: 1.5 },
+    double: { color: '#FFD700', multiplier: 2 },
+    invisible: { color: '#4B0082', alpha: 0.5 }
+};
 
 function getColorByScore(score) {
     if (score >= 100) return {
@@ -69,6 +78,7 @@ function spawnPowerUp() {
     return { x, y };
 }
 
+// Power-up spawn interval
 setInterval(() => {
     if (powerUps.size < 5) {
         const pos = spawnPowerUp();
@@ -76,7 +86,7 @@ setInterval(() => {
             id: Date.now(),
             x: pos.x,
             y: pos.y,
-            type: ['speed', 'double', 'invisible'][Math.floor(Math.random() * 3)]
+            type: Object.keys(POWER_UP_TYPES)[Math.floor(Math.random() * 3)]
         };
         powerUps.add(powerUp);
         io.emit('powerUpSpawn', Array.from(powerUps));
@@ -86,6 +96,11 @@ setInterval(() => {
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
+    // Send initial game state
+    socket.emit('gameState', Array.from(players.values()));
+    socket.emit('powerUpSpawn', Array.from(powerUps));
+    socket.emit('mazeData', maze);
+
     socket.on('playerJoin', (data) => {
         let spawnX, spawnY;
         do {
@@ -93,7 +108,7 @@ io.on('connection', (socket) => {
             spawnY = Math.random() * (GAME_HEIGHT - 100) + 50;
         } while (checkWallCollision(spawnX, spawnY, FIXED_SIZE));
 
-        players.set(socket.id, {
+        const newPlayer = {
             id: socket.id,
             name: data.name,
             breed: data.breed,
@@ -104,7 +119,9 @@ io.on('connection', (socket) => {
             color: getColorByScore(0),
             powerUps: {},
             lastUpdate: Date.now()
-        });
+        };
+
+        players.set(socket.id, newPlayer);
         io.emit('gameState', Array.from(players.values()));
     });
 
@@ -159,11 +176,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('connect', () => {
-    console.log('Connected to server!');
-});
-
-    
     socket.on('maulComplete', (data) => {
         const attacker = players.get(socket.id);
         const target = players.get(data.targetId);
