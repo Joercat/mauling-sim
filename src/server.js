@@ -159,6 +159,11 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('connect', () => {
+    console.log('Connected to server!');
+});
+
+    
     socket.on('maulComplete', (data) => {
         const attacker = players.get(socket.id);
         const target = players.get(data.targetId);
