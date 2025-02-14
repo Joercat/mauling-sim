@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mauling Simulator</title>
+    <title>Enhanced Mauling Simulator</title>
     <style>
         body {
             margin: 0;
@@ -32,13 +32,6 @@
             text-align: center;
         }
         
-        .leaderboard-entry {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 10px;
-            border-bottom: 1px solid #333;
-        }
-        
         canvas {
             border: 3px solid #333333;
             border-radius: 10px;
@@ -59,81 +52,12 @@
             gap: 20px;
             z-index: 100;
         }
-        
-        #powerUpsDisplay {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            display: flex;
-            gap: 10px;
-        }
-        
-        .powerUp-icon {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            border: 2px solid #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-        }
-        
-        #maulMinigame {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #333333;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            z-index: 50;
-        }
-        
-        #progressBar {
-            width: 300px;
-            height: 20px;
-            background: #666666;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        
-        #progress {
-            height: 100%;
-            background: linear-gradient(90deg, #4CAF50, #8BC34A);
-            width: 0%;
-            transition: width 0.1s;
-        }
-        
-        input, select, button {
-            padding: 10px;
-            font-size: 16px;
-            border-radius: 5px;
-            border: none;
-            background: #333333;
-            color: #ffffff;
-            margin: 5px;
-        }
-        
-        button {
-            background: #4CAF50;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        
-        button:hover {
-            background: #45a049;
-        }
     </style>
 </head>
 <body>
     <div id="gameContainer">
         <div id="leaderboard"></div>
         <canvas id="gameCanvas"></canvas>
-        <div id="powerUpsDisplay"></div>
     </div>
     
     <div id="startScreen">
@@ -147,13 +71,6 @@
         </select>
         <button onclick="startGame()">Start Game</button>
     </div>
-    
-    <div id="maulMinigame">
-        <h2>MAUL BATTLE!</h2>
-        <div id="countdown">3</div>
-        <div id="progressBar"><div id="progress"></div></div>
-        <div id="instructions">Spam SPACE to win!</div>
-    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -166,6 +83,7 @@
         let player = null;
         let players = [];
         let powerUps = [];
+        let gameInitialized = false;
         
         const maze = [
             {x: 100, y: 100, width: 20, height: 200},
@@ -178,7 +96,7 @@
             ctx.save();
             
             // Body
-            if (Array.isArray(color.colors)) {
+            if (color.type === 'rainbow') {
                 const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
                 color.colors.forEach((c, i) => {
                     gradient.addColorStop(i / color.colors.length, c);
@@ -254,54 +172,36 @@
         
         function drawPowerUps() {
             powerUps.forEach(powerUp => {
-                if (!checkWallCollision(powerUp.x, powerUp.y, 10)) {
-                    ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
-                                   powerUp.type === 'double' ? '#FFD700' : '#4B0082';
-                    ctx.beginPath();
-                    ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = '12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
-                }
-            });
-        }
-        
-        function checkWallCollision(x, y, size) {
-            return maze.some(wall => {
-                const circleDistance = {
-                    x: Math.abs(x - (wall.x + wall.width/2)),
-                    y: Math.abs(y - (wall.y + wall.height/2))
-                };
-
-                if (circleDistance.x > (wall.width/2 + size)) return false;
-                if (circleDistance.y > (wall.height/2 + size)) return false;
-
-                if (circleDistance.x <= (wall.width/2)) return true;
-                if (circleDistance.y <= (wall.height/2)) return true;
-
-                const cornerDistance = Math.pow(circleDistance.x - wall.width/2, 2) +
-                                     Math.pow(circleDistance.y - wall.height/2, 2);
-
-                return cornerDistance <= Math.pow(size, 2);
+                ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
+                               powerUp.type === 'double' ? '#FFD700' : '#4B0082';
+                ctx.beginPath();
+                ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
             });
         }
         
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw game elements
             drawMaze();
             drawPowerUps();
             
-            // Draw other players first
-            players.filter(p => p.id !== socket.id).forEach(p => {
-                drawDetailedDog(p.x, p.y, p.size, p.color, p.breed);
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '14px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(p.name, p.x, p.y + p.size + 20);
-                ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 35);
+            // Draw other players
+            players.forEach(p => {
+                if (p.id !== socket.id) {
+                    drawDetailedDog(p.x, p.y, p.size, p.color, p.breed);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(p.name, p.x, p.y + p.size + 20);
+                    ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 35);
+                }
             });
             
             // Draw local player last
@@ -345,13 +245,31 @@
                 if (keys.ArrowUp) newY -= speed;
                 if (keys.ArrowDown) newY += speed;
                 
-                if (!checkWallCollision(newX, newY, player.size)) {
-                    player.x = Math.max(player.size, Math.min(canvas.width - player.size, newX));
-                    player.y = Math.max(player.size, Math.min(canvas.height - player.size, newY));
+                // Boundary checks
+                newX = Math.max(player.size, Math.min(canvas.width - player.size, newX));
+                newY = Math.max(player.size, Math.min(canvas.height - player.size, newY));
+                
+                if (newX !== player.x || newY !== player.y) {
+                    player.x = newX;
+                    player.y = newY;
                     socket.emit('update', player);
                 }
             }
         }
+        
+        function initGame() {
+            if (!gameInitialized) {
+                gameInitialized = true;
+                socket.emit('requestGameState');
+                gameLoop();
+                draw(); // Force initial render
+            }
+        }
+        
+        socket.on('connect', () => {
+            console.log('Connected to server!');
+            initGame();
+        });
         
         socket.on('gameState', (state) => {
             players = state;
@@ -363,30 +281,6 @@
             powerUps = state;
         });
         
-        socket.on('powerUpCollected', (data) => {
-            if (data.playerId === socket.id) {
-                const flash = document.createElement('div');
-                flash.style.position = 'fixed';
-                flash.style.top = '50%';
-                flash.style.left = '50%';
-                flash.style.transform = 'translate(-50%, -50%)';
-                flash.style.padding = '20px';
-                flash.style.background = 'rgba(255,255,255,0.8)';
-                flash.style.borderRadius = '10px';
-                flash.textContent = `${data.type.toUpperCase()} POWER-UP!`;
-                document.body.appendChild(flash);
-                setTimeout(() => flash.remove(), 1000);
-            }
-        });
-        
-        socket.on('powerUpExpired', (type) => {
-            if (player) {
-                player.powerUps[type] = false;
-            }
-        });
-        
-        socket.on('startMaulMinigame', startMaulMinigame);
-        
         function startGame() {
             const name = document.getElementById('playerName').value;
             const breed = document.getElementById('dogBreed').value;
@@ -397,11 +291,12 @@
         }
         
         function gameLoop() {
+            requestAnimationFrame(gameLoop);
             update();
             draw();
-            requestAnimationFrame(gameLoop);
         }
         
+        // Start the game loop immediately
         gameLoop();
     </script>
 </body>
