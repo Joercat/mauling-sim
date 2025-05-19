@@ -1,205 +1,273 @@
 const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
+const path = require('path');
+
+// Create the Express app
 const app = express();
-const http = require('http').Server(app);
-const io = require('socket.io')(http, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+const server = http.createServer(app);
+const io = socketIO(server);
+
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve the game HTML file
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
-const PORT = process.env.PORT || 3000;
-app.use(express.static('public'));
-
-// Game constants
-const FIXED_SIZE = 30;
-const MAX_LEVEL = 100;
-const POWER_UP_DURATION = 5000;
-const GAME_WIDTH = 800;
-const GAME_HEIGHT = 600;
 
 // Game state
-const players = new Map();
-const powerUps = new Set();
-const maze = [
-    {x: 100, y: 100, width: 20, height: 200},
-    {x: 300, y: 200, width: 200, height: 20},
-    {x: 500, y: 300, width: 20, height: 200},
-    {x: 150, y: 400, width: 200, height: 20}
-];
+const players = {};
+const foodItems = {};
+const battles = {};
 
-// Power-up configuration
-const POWER_UP_TYPES = {
-    speed: { color: '#00FF00', multiplier: 1.5 },
-    double: { color: '#FFD700', multiplier: 2 },
-    invisible: { color: '#4B0082', alpha: 0.5 }
-};
+// Game constants
+const WORLD_WIDTH = 800;
+const WORLD_HEIGHT = 600;
+const FOOD_COUNT = 20;
+const PLAYER_SPEED = 5;
+const BATTLE_THRESHOLD = 0.5; // Position change per space bar press
 
-function getColorByScore(score) {
-    if (score >= 100) return {
-        type: 'rainbow',
-        colors: ['#FF0000', '#FFA500', '#FFFF00', '#008000', '#0000FF', '#4B0082', '#9400D3']
-    };
-    if (score >= 90) return { type: 'solid', color: '#FFD700' };
-    if (score >= 80) return { type: 'solid', color: '#C0C0C0' };
-    if (score >= 70) return { type: 'solid', color: '#9400D3' };
-    if (score >= 60) return { type: 'solid', color: '#4B0082' };
-    if (score >= 50) return { type: 'solid', color: '#0000FF' };
-    if (score >= 40) return { type: 'solid', color: '#008000' };
-    if (score >= 30) return { type: 'solid', color: '#FFFF00' };
-    if (score >= 20) return { type: 'solid', color: '#FFA500' };
-    return { type: 'solid', color: '#FF0000' };
+// Initialize food items
+function initializeFood() {
+  for (let i = 0; i < FOOD_COUNT; i++) {
+    spawnFood();
+  }
 }
 
-function checkWallCollision(x, y, size) {
-    return maze.some(wall => {
-        const circleDistance = {
-            x: Math.abs(x - (wall.x + wall.width/2)),
-            y: Math.abs(y - (wall.y + wall.height/2))
-        };
-
-        if (circleDistance.x > (wall.width/2 + size)) return false;
-        if (circleDistance.y > (wall.height/2 + size)) return false;
-
-        if (circleDistance.x <= (wall.width/2)) return true;
-        if (circleDistance.y <= (wall.height/2)) return true;
-
-        const cornerDistance = Math.pow(circleDistance.x - wall.width/2, 2) +
-                             Math.pow(circleDistance.y - wall.height/2, 2);
-
-        return cornerDistance <= Math.pow(size, 2);
-    });
+// Spawn a food item
+function spawnFood() {
+  const foodId = 'food-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  foodItems[foodId] = {
+    id: foodId,
+    x: Math.floor(Math.random() * (WORLD_WIDTH - 50) + 25),
+    y: Math.floor(Math.random() * (WORLD_HEIGHT - 50) + 25)
+  };
 }
 
-function spawnPowerUp() {
-    let x, y;
-    do {
-        x = Math.random() * (GAME_WIDTH - 40) + 20;
-        y = Math.random() * (GAME_HEIGHT - 40) + 20;
-    } while (checkWallCollision(x, y, 10));
+// Check if player can collect food
+function checkFoodCollection(player) {
+  const playerSize = 30 + (player.level * 5);
+  const collectRange = playerSize / 2;
+  
+  for (let foodId in foodItems) {
+    const food = foodItems[foodId];
+    const dx = player.x - food.x;
+    const dy = player.y - food.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
     
-    return { x, y };
+    if (distance < collectRange) {
+      // Food collected
+      delete foodItems[foodId];
+      io.emit('foodCollected', { playerId: player.id, foodId });
+      spawnFood(); // Spawn new food to maintain food count
+      return true;
+    }
+  }
+  return false;
 }
 
-// Power-up spawn interval
-setInterval(() => {
-    if (powerUps.size < 5) {
-        const pos = spawnPowerUp();
-        const powerUp = {
-            id: Date.now(),
-            x: pos.x,
-            y: pos.y,
-            type: Object.keys(POWER_UP_TYPES)[Math.floor(Math.random() * 3)]
-        };
-        powerUps.add(powerUp);
-        io.emit('powerUpSpawn', Array.from(powerUps));
+// Check if players can battle
+function checkPlayerBattle(playerId) {
+  const player = players[playerId];
+  if (!player) return false;
+  
+  const playerSize = 30 + (player.level * 5);
+  const attackRange = playerSize;
+  
+  for (let id in players) {
+    if (id !== playerId) {
+      const otherPlayer = players[id];
+      const dx = player.x - otherPlayer.x;
+      const dy = player.y - otherPlayer.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Only start a battle if players are close and not currently in battle
+      if (distance < attackRange && !player.inBattle && !otherPlayer.inBattle) {
+        startBattle(playerId, id);
+        return true;
+      }
     }
-}, 10000);
+  }
+  return false;
+}
 
+// Start a battle between two players
+function startBattle(player1Id, player2Id) {
+  const battleId = `battle-${Date.now()}`;
+  
+  // Set players as in battle
+  players[player1Id].inBattle = true;
+  players[player2Id].inBattle = true;
+  
+  // Create battle object
+  battles[battleId] = {
+    id: battleId,
+    player1: player1Id,
+    player2: player2Id,
+    position: 50, // Start in the middle
+    player1Input: 0,
+    player2Input: 0,
+    startTime: Date.now(),
+    timer: setTimeout(() => endBattle(battleId), 15000) // Battle timeout of 15 seconds
+  };
+  
+  // Notify players of battle start
+  io.to(player1Id).emit('battleStart', { battleId, opponent: players[player2Id].level });
+  io.to(player2Id).emit('battleStart', { battleId, opponent: players[player1Id].level });
+}
+
+// Process battle input
+function processBattleInput(battleId, playerId, inputCount) {
+  const battle = battles[battleId];
+  if (!battle) return;
+  
+  // Update player input
+  if (playerId === battle.player1) {
+    battle.player1Input = inputCount;
+  } else if (playerId === battle.player2) {
+    battle.player2Input = inputCount;
+  }
+  
+  // Calculate new position based on level-weighted inputs
+  const player1 = players[battle.player1];
+  const player2 = players[battle.player2];
+  
+  const player1Force = battle.player1Input * (player1.level / 3);
+  const player2Force = battle.player2Input * (player2.level / 3);
+  
+  const totalForce = player1Force + player2Force;
+  if (totalForce > 0) {
+    const newPosition = 50 + ((player1Force - player2Force) / totalForce) * 30;
+    battle.position = Math.max(10, Math.min(90, newPosition));
+  }
+  
+  // Broadcast battle update
+  io.to(battle.player1).emit('battleUpdate', { battleId, position: battle.position });
+  io.to(battle.player2).emit('battleUpdate', { battleId, position: battle.position });
+  
+  // Check if battle is won
+  if (battle.position <= 10) {
+    // Player 2 wins
+    clearTimeout(battle.timer);
+    endBattle(battleId, battle.player2);
+  } else if (battle.position >= 90) {
+    // Player 1 wins
+    clearTimeout(battle.timer);
+    endBattle(battleId, battle.player1);
+  }
+}
+
+// End a battle
+function endBattle(battleId, winnerId = null) {
+  const battle = battles[battleId];
+  if (!battle) return;
+  
+  // If no winner was determined by position, determine by input count
+  if (!winnerId) {
+    const player1Force = battle.player1Input * players[battle.player1].level;
+    const player2Force = battle.player2Input * players[battle.player2].level;
+    winnerId = player1Force > player2Force ? battle.player1 : battle.player2;
+  }
+  
+  // Release players from battle
+  players[battle.player1].inBattle = false;
+  players[battle.player2].inBattle = false;
+  
+  // Notify players of battle result
+  io.to(battle.player1).emit('battleEnd', { battleId, winner: winnerId });
+  io.to(battle.player2).emit('battleEnd', { battleId, winner: winnerId });
+  
+  // Clean up battle
+  delete battles[battleId];
+}
+
+// Socket.IO connection handling
 io.on('connection', (socket) => {
-    console.log('Player connected:', socket.id);
-
+  console.log(`Player connected: ${socket.id}`);
+  
+  // Handle player spawn
+  socket.on('spawn', (data) => {
+    players[socket.id] = {
+      id: socket.id,
+      x: data.x,
+      y: data.y,
+      level: data.level || 1,
+      inBattle: false
+    };
+    
     // Send initial game state
-    socket.emit('gameState', Array.from(players.values()));
-    socket.emit('powerUpSpawn', Array.from(powerUps));
-    socket.emit('mazeData', maze);
-
-    socket.on('playerJoin', (data) => {
-        let spawnX, spawnY;
-        do {
-            spawnX = Math.random() * (GAME_WIDTH - 100) + 50;
-            spawnY = Math.random() * (GAME_HEIGHT - 100) + 50;
-        } while (checkWallCollision(spawnX, spawnY, FIXED_SIZE));
-
-        const newPlayer = {
-            id: socket.id,
-            name: data.name,
-            breed: data.breed,
-            x: spawnX,
-            y: spawnY,
-            size: FIXED_SIZE,
-            score: 0,
-            color: getColorByScore(0),
-            powerUps: {},
-            lastUpdate: Date.now()
-        };
-
-        players.set(socket.id, newPlayer);
-        io.emit('gameState', Array.from(players.values()));
-    });
-
-    socket.on('update', (data) => {
-        const player = players.get(socket.id);
-        if (player && !checkWallCollision(data.x, data.y, FIXED_SIZE)) {
-            player.x = data.x;
-            player.y = data.y;
-
-            powerUps.forEach(powerUp => {
-                const dx = player.x - powerUp.x;
-                const dy = player.y - powerUp.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < player.size + 10) {
-                    player.powerUps[powerUp.type] = true;
-                    powerUps.delete(powerUp);
-                    
-                    setTimeout(() => {
-                        if (player.powerUps[powerUp.type]) {
-                            player.powerUps[powerUp.type] = false;
-                            io.to(socket.id).emit('powerUpExpired', powerUp.type);
-                        }
-                    }, POWER_UP_DURATION);
-
-                    io.emit('powerUpCollected', {
-                        playerId: socket.id,
-                        powerUpId: powerUp.id,
-                        type: powerUp.type
-                    });
-                }
-            });
-
-            io.emit('gameState', Array.from(players.values()));
-            io.emit('powerUpSpawn', Array.from(powerUps));
-        }
-    });
-
-    socket.on('maulAttempt', (targetId) => {
-        const attacker = players.get(socket.id);
-        const target = players.get(targetId);
-        
-        if (attacker && target) {
-            const scoreDiff = Math.abs(attacker.score - target.score);
-            const requiredClicks = Math.max(10, Math.min(30, 20 + scoreDiff));
-            
-            io.to(socket.id).emit('startMaulMinigame', {
-                attackerId: socket.id,
-                targetId: targetId,
-                requiredClicks: requiredClicks
-            });
-        }
-    });
-
-    socket.on('maulComplete', (data) => {
-        const attacker = players.get(socket.id);
-        const target = players.get(data.targetId);
-        
-        if (attacker && target) {
-            let points = 1;
-            if (attacker.score === target.score) points = 2;
-            if (attacker.score < target.score) points = 3;
-            
-            if (attacker.powerUps.double) points *= 2;
-            
-            attacker.score = Math.min(MAX_LEVEL, attacker.score + points);
-            attacker.color = getColorByScore(attacker.score);
-            
-            io.emit('gameState', Array.from(players.values()));
-            io.to(data.targetId).emit('mauled', { attackerId: socket.id });
-        }
-    });
-
-    socket.on('disconnect', () => {
-        console.log('Player disconnected:', socket.id);
-        players.delete(socket.id);
-        io.emit('gameState', Array.from(players.values()));
-    });
+    socket.emit('gameState', { players, foodItems });
+    
+    // Broadcast new player to others
+    socket.broadcast.emit('gameState', { players, foodItems });
+  });
+  
+  // Handle player movement
+  socket.on('playerMove', (movement) => {
+    const player = players[socket.id];
+    if (!player || player.inBattle) return;
+    
+    // Adjust movement speed based on level (bigger dogs move slower)
+    const speed = PLAYER_SPEED * (1 - (player.level - 1) * 0.05);
+    
+    // Update player position
+    if (movement.up) player.y = Math.max(20, player.y - speed);
+    if (movement.down) player.y = Math.min(WORLD_HEIGHT - 20, player.y + speed);
+    if (movement.left) player.x = Math.max(20, player.x - speed);
+    if (movement.right) player.x = Math.min(WORLD_WIDTH - 20, player.x + speed);
+    
+    // Check for food collection
+    checkFoodCollection(player);
+    
+    // Broadcast updated game state
+    io.emit('gameState', { players, foodItems });
+  });
+  
+  // Handle level up
+  socket.on('levelUp', (data) => {
+    if (players[socket.id]) {
+      players[socket.id].level = data.level;
+      io.emit('gameState', { players, foodItems });
+    }
+  });
+  
+  // Handle attack attempt
+  socket.on('tryAttack', () => {
+    checkPlayerBattle(socket.id);
+  });
+  
+  // Handle battle input
+  socket.on('battleInput', (data) => {
+    processBattleInput(data.battleId, socket.id, data.count);
+  });
+  
+  // Handle player disconnect
+  socket.on('disconnect', () => {
+    console.log(`Player disconnected: ${socket.id}`);
+    
+    // Clean up any active battles
+    for (let battleId in battles) {
+      const battle = battles[battleId];
+      if (battle.player1 === socket.id || battle.player2 === socket.id) {
+        const winnerId = battle.player1 === socket.id ? battle.player2 : battle.player1;
+        endBattle(battleId, winnerId);
+      }
+    }
+    
+    // Remove player
+    delete players[socket.id];
+    
+    // Broadcast player removal
+    io.emit('gameState', { players, foodItems });
+  });
 });
 
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Initialize food
+initializeFood();
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
