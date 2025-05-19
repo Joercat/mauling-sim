@@ -1,303 +1,449 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Enhanced Mauling Simulator</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mauling Simulator</title>
     <style>
         body {
             margin: 0;
-            padding: 20px;
-            background: #1a1a1a;
-            font-family: Arial, sans-serif;
-            color: #ffffff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            padding: 0;
             overflow: hidden;
+            background-color: #8BC34A;
+            font-family: Arial, sans-serif;
         }
-        
+        #gameCanvas {
+            display: block;
+            margin: 0 auto;
+            background-color: #8BC34A;
+            border: 4px solid #5D4037;
+        }
         #gameContainer {
             position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
+            width: 800px;
+            margin: 20px auto;
         }
-        
-        #leaderboard {
-            background: rgba(0,0,0,0.8);
-            padding: 15px;
-            border-radius: 8px;
-            min-width: 300px;
-            margin-bottom: 20px;
-            text-align: center;
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.5);
         }
-        
-        canvas {
-            border: 3px solid #333333;
-            border-radius: 10px;
-            background: #ffffff;
-        }
-        
-        #startScreen {
-            position: fixed;
-            top: 0;
-            left: 0;
+        #battleScreen {
+            position: absolute;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.9);
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        #battleBar {
+            width: 70%;
+            height: 40px;
+            background-color: #ccc;
+            margin: 20px 0;
+            position: relative;
+        }
+        #centerMarker {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 2px;
+            height: 40px;
+            background-color: black;
+        }
+        #progressMarker {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 10px;
+            height: 40px;
+            background-color: red;
+            transition: left 0.1s;
+        }
+        #instructions {
+            margin-top: 20px;
+            font-size: 24px;
+        }
+        #spaceCounter {
+            font-size: 36px;
+            margin: 10px 0;
+        }
+        #victoryScreen, #defeatScreen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 36px;
+        }
+        #continueBtn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        #continueBtn:hover {
+            background-color: #45a049;
+        }
+        #startScreen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
-            gap: 20px;
-            z-index: 100;
+            align-items: center;
+            color: white;
+        }
+        #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #FF9800;
+        }
+        #playBtn {
+            padding: 15px 30px;
+            font-size: 24px;
+            background-color: #FF9800;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        #playBtn:hover {
+            background-color: #F57C00;
+        }
+        .dogSprite {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background-color: brown;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+        }
+        .foodItem {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            background-color: #FF9800;
+            border-radius: 50%;
         }
     </style>
 </head>
 <body>
     <div id="gameContainer">
-        <div id="leaderboard"></div>
-        <canvas id="gameCanvas"></canvas>
-    </div>
-    
-    <div id="startScreen">
-        <h1>Mauling Simulator</h1>
-        <input type="text" id="playerName" placeholder="Enter your name" maxlength="15">
-        <select id="dogBreed">
-            <option value="bulldog">Bulldog</option>
-            <option value="poodle">Poodle</option>
-            <option value="husky">Husky</option>
-            <option value="corgi">Corgi</option>
-        </select>
-        <button onclick="startGame()">Start Game</button>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div id="hud">
+            <div>Level: <span id="playerLevel">1</span></div>
+            <div>Food: <span id="foodCount">0</span>/10</div>
+        </div>
+        
+        <div id="startScreen">
+            <h1>MAULING SIMULATOR</h1>
+            <p>Collect dog food to level up. Challenge other dogs to a mauling battle!</p>
+            <p>Controls: Arrow keys to move, Space to attack nearby dogs</p>
+            <button id="playBtn">PLAY</button>
+        </div>
+        
+        <div id="battleScreen">
+            <h2>MAULING BATTLE!</h2>
+            <div id="battleBar">
+                <div id="centerMarker"></div>
+                <div id="progressMarker"></div>
+            </div>
+            <div id="instructions">SPAM SPACEBAR AS FAST AS YOU CAN!</div>
+            <div id="spaceCounter">0</div>
+        </div>
+        
+        <div id="victoryScreen">
+            <h2>VICTORY!</h2>
+            <p>You won the mauling battle!</p>
+            <button id="continueBtn">Continue</button>
+        </div>
+        
+        <div id="defeatScreen">
+            <h2>DEFEAT!</h2>
+            <p>You lost the mauling battle!</p>
+            <button id="continueDefeatBtn">Continue</button>
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = 800;
-        canvas.height = 600;
+        // Game variables
+        let socket;
+        let canvas = document.getElementById('gameCanvas');
+        let ctx = canvas.getContext('2d');
+        let playerId;
+        let players = {};
+        let foodItems = {};
+        let playerLevel = 1;
+        let foodCount = 0;
+        let gameActive = false;
+        let currentBattleId = null;
+        let battleActive = false;
+        let spaceCount = 0;
+        let progressPosition = 50; // Start in the middle
         
-        const socket = io();
-        let player = null;
-        let players = [];
-        let powerUps = [];
-        let gameInitialized = false;
-        
-        const maze = [
-            {x: 100, y: 100, width: 20, height: 200},
-            {x: 300, y: 200, width: 200, height: 20},
-            {x: 500, y: 300, width: 20, height: 200},
-            {x: 150, y: 400, width: 200, height: 20}
-        ];
-
-        function drawDetailedDog(x, y, size, color, breed) {
-            ctx.save();
-            
-            // Body
-            if (color.type === 'rainbow') {
-                const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
-                color.colors.forEach((c, i) => {
-                    gradient.addColorStop(i / color.colors.length, c);
-                });
-                ctx.fillStyle = gradient;
-            } else {
-                ctx.fillStyle = color.color;
-            }
-            
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Breed-specific features
-            switch(breed) {
-                case 'bulldog':
-                    ctx.strokeStyle = '#000000';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(x, y - size/4, size/2, 0.2, Math.PI - 0.2);
-                    ctx.stroke();
-                    break;
-                case 'poodle':
-                    for(let i = 0; i < 8; i++) {
-                        ctx.beginPath();
-                        ctx.arc(x + Math.cos(i * Math.PI/4) * size/2,
-                               y + Math.sin(i * Math.PI/4) * size/2,
-                               size/4, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                    break;
-                case 'husky':
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(x, y + size/4, size/2, 0, Math.PI);
-                    ctx.fill();
-                    break;
-                case 'corgi':
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(x - size/2, y + size/2, size, size/4);
-                    break;
-            }
-            
-            // Eyes
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(x - size/3, y - size/6, size/4, 0, Math.PI * 2);
-            ctx.arc(x + size/3, y - size/6, size/4, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Pupils
-            ctx.fillStyle = '#000000';
-            ctx.beginPath();
-            ctx.arc(x - size/3, y - size/6, size/8, 0, Math.PI * 2);
-            ctx.arc(x + size/3, y - size/6, size/8, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Nose
-            ctx.fillStyle = '#000000';
-            ctx.beginPath();
-            ctx.arc(x, y + size/4, size/6, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.restore();
-        }
-        
-        function drawMaze() {
-            ctx.fillStyle = '#666666';
-            maze.forEach(wall => {
-                ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
-            });
-        }
-        
-        function drawPowerUps() {
-            powerUps.forEach(powerUp => {
-                ctx.fillStyle = powerUp.type === 'speed' ? '#00FF00' : 
-                               powerUp.type === 'double' ? '#FFD700' : '#4B0082';
-                ctx.beginPath();
-                ctx.arc(powerUp.x, powerUp.y, 10, 0, Math.PI * 2);
-                ctx.fill();
-                
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(powerUp.type[0].toUpperCase(), powerUp.x, powerUp.y + 4);
-            });
-        }
-        
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw game elements
-            drawMaze();
-            drawPowerUps();
-            
-            // Draw other players
-            players.forEach(p => {
-                if (p.id !== socket.id) {
-                    drawDetailedDog(p.x, p.y, p.size, p.color, p.breed);
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = '14px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(p.name, p.x, p.y + p.size + 20);
-                    ctx.fillText(`Score: ${p.score}`, p.x, p.y + p.size + 35);
-                }
-            });
-            
-            // Draw local player last
-            if (player) {
-                drawDetailedDog(player.x, player.y, player.size, player.color, player.breed);
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '14px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(player.name, player.x, player.y + player.size + 20);
-                ctx.fillText(`Score: ${player.score}`, player.x, player.y + player.size + 35);
-            }
-        }
-        
-        function updateLeaderboard() {
-            const board = document.getElementById('leaderboard');
-            const sorted = [...players].sort((a, b) => b.score - a.score);
-            board.innerHTML = '<h3>Top Players</h3>' + 
-                sorted.slice(0, 5).map((p, i) => 
-                    `<div class="leaderboard-entry">
-                        <span>#${i + 1} ${p.name}</span>
-                        <span>${p.score}</span>
-                    </div>`
-                ).join('');
-        }
-        
-        const keys = {};
-        window.addEventListener('keydown', e => {
-            keys[e.key] = true;
-            if (e.key === ' ') e.preventDefault();
-        });
-        window.addEventListener('keyup', e => keys[e.key] = false);
-        
-        function update() {
-            if (player) {
-                const speed = player.powerUps.speed ? 8 : 5;
-                let newX = player.x;
-                let newY = player.y;
-                
-                if (keys.ArrowLeft) newX -= speed;
-                if (keys.ArrowRight) newX += speed;
-                if (keys.ArrowUp) newY -= speed;
-                if (keys.ArrowDown) newY += speed;
-                
-                // Boundary checks
-                newX = Math.max(player.size, Math.min(canvas.width - player.size, newX));
-                newY = Math.max(player.size, Math.min(canvas.height - player.size, newY));
-                
-                if (newX !== player.x || newY !== player.y) {
-                    player.x = newX;
-                    player.y = newY;
-                    socket.emit('update', player);
-                }
-            }
-        }
-        
-        function initGame() {
-            if (!gameInitialized) {
-                gameInitialized = true;
-                socket.emit('requestGameState');
-                gameLoop();
-                draw(); // Force initial render
-            }
-        }
-        
-        socket.on('connect', () => {
-            console.log('Connected to server!');
-            initGame();
+        // Start screen
+        document.getElementById('playBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            startGame();
         });
         
-        socket.on('gameState', (state) => {
-            players = state;
-            player = state.find(p => p.id === socket.id);
-            updateLeaderboard();
+        // Continue buttons
+        document.getElementById('continueBtn').addEventListener('click', () => {
+            document.getElementById('victoryScreen').style.display = 'none';
+            gameActive = true;
         });
         
-        socket.on('powerUpSpawn', (state) => {
-            powerUps = state;
+        document.getElementById('continueDefeatBtn').addEventListener('click', () => {
+            document.getElementById('defeatScreen').style.display = 'none';
+            gameActive = true;
         });
         
         function startGame() {
-            const name = document.getElementById('playerName').value;
-            const breed = document.getElementById('dogBreed').value;
-            if (name.trim()) {
-                document.getElementById('startScreen').style.display = 'none';
-                socket.emit('playerJoin', { name, breed });
-            }
+            // Connect to the server
+            socket = io();
+            
+            // Initialize game
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                playerId = socket.id;
+                gameActive = true;
+                
+                // Send player spawn signal
+                socket.emit('spawn', {
+                    x: Math.floor(Math.random() * (canvas.width - 50) + 25),
+                    y: Math.floor(Math.random() * (canvas.height - 50) + 25),
+                    level: playerLevel
+                });
+                
+                // Set up keyboard controls
+                setupControls();
+            });
+            
+            // Handle game state updates
+            socket.on('gameState', (data) => {
+                players = data.players;
+                foodItems = data.foodItems;
+                updateHUD();
+            });
+            
+            // Handle food collection
+            socket.on('foodCollected', (data) => {
+                if (data.playerId === playerId) {
+                    foodCount++;
+                    
+                    // Level up after collecting 10 food items
+                    if (foodCount >= 10) {
+                        playerLevel++;
+                        foodCount = 0;
+                        socket.emit('levelUp', { level: playerLevel });
+                    }
+                    
+                    updateHUD();
+                }
+            });
+            
+            // Battle initialization
+            socket.on('battleStart', (data) => {
+                gameActive = false;
+                battleActive = true;
+                currentBattleId = data.battleId;
+                document.getElementById('battleScreen').style.display = 'flex';
+                document.getElementById('progressMarker').style.left = '50%';
+                progressPosition = 50;
+                spaceCount = 0;
+                document.getElementById('spaceCounter').textContent = spaceCount;
+            });
+            
+            // Battle updates
+            socket.on('battleUpdate', (data) => {
+                if (data.battleId === currentBattleId) {
+                    progressPosition = data.position;
+                    document.getElementById('progressMarker').style.left = `${progressPosition}%`;
+                }
+            });
+            
+            // Battle result
+            socket.on('battleEnd', (data) => {
+                battleActive = false;
+                document.getElementById('battleScreen').style.display = 'none';
+                
+                if (data.winner === playerId) {
+                    document.getElementById('victoryScreen').style.display = 'flex';
+                } else {
+                    document.getElementById('defeatScreen').style.display = 'flex';
+                }
+            });
+            
+            // Start game loop
+            gameLoop();
+        }
+        
+        function setupControls() {
+            // Movement controls
+            const keys = {
+                ArrowUp: false,
+                ArrowDown: false,
+                ArrowLeft: false,
+                ArrowRight: false,
+                ' ': false
+            };
+            
+            document.addEventListener('keydown', (e) => {
+                if (keys.hasOwnProperty(e.key)) {
+                    keys[e.key] = true;
+                    
+                    // Handle attack key (spacebar)
+                    if (e.key === ' ') {
+                        if (battleActive) {
+                            handleBattleInput();
+                        } else if (gameActive) {
+                            tryAttack();
+                        }
+                    }
+                    
+                    // Prevent scrolling with arrow keys
+                    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+                        e.preventDefault();
+                    }
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                if (keys.hasOwnProperty(e.key)) {
+                    keys[e.key] = false;
+                }
+            });
+            
+            // Player movement update loop
+            setInterval(() => {
+                if (gameActive && players[playerId]) {
+                    let movement = {
+                        up: keys.ArrowUp,
+                        down: keys.ArrowDown,
+                        left: keys.ArrowLeft,
+                        right: keys.ArrowRight
+                    };
+                    
+                    if (movement.up || movement.down || movement.left || movement.right) {
+                        socket.emit('playerMove', movement);
+                    }
+                }
+            }, 33); // ~30 FPS
+        }
+        
+        function handleBattleInput() {
+            spaceCount++;
+            document.getElementById('spaceCounter').textContent = spaceCount;
+            socket.emit('battleInput', { battleId: currentBattleId, count: spaceCount });
+        }
+        
+        function tryAttack() {
+            socket.emit('tryAttack');
+        }
+        
+        function updateHUD() {
+            document.getElementById('playerLevel').textContent = playerLevel;
+            document.getElementById('foodCount').textContent = foodCount;
         }
         
         function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw players
+            for (let id in players) {
+                const player = players[id];
+                const size = 30 + (player.level * 5); // Size increases with level
+                
+                // Draw player
+                ctx.fillStyle = id === playerId ? '#FF5722' : '#795548';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, size / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw ears
+                ctx.fillStyle = id === playerId ? '#D84315' : '#5D4037';
+                ctx.beginPath();
+                ctx.arc(player.x - size / 3, player.y - size / 3, size / 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(player.x + size / 3, player.y - size / 3, size / 6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw snout
+                ctx.fillStyle = id === playerId ? '#D84315' : '#5D4037';
+                ctx.beginPath();
+                ctx.ellipse(player.x, player.y + size / 6, size / 4, size / 3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw nose
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(player.x, player.y + size / 3, size / 8, size / 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw eyes
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(player.x - size / 6, player.y - size / 12, size / 12, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(player.x + size / 6, player.y - size / 12, size / 12, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw level text
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(player.level, player.x, player.y - size / 2 - 10);
+            }
+            
+            // Draw food items
+            for (let id in foodItems) {
+                const food = foodItems[id];
+                
+                // Draw dog food
+                ctx.fillStyle = '#FF9800';
+                ctx.beginPath();
+                ctx.arc(food.x, food.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw kibble details
+                ctx.fillStyle = '#E65100';
+                ctx.beginPath();
+                ctx.arc(food.x - 2, food.y - 2, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(food.x + 2, food.y + 2, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Request next frame
             requestAnimationFrame(gameLoop);
-            update();
-            draw();
         }
-        
-        // Start the game loop immediately
-        gameLoop();
     </script>
 </body>
 </html>
